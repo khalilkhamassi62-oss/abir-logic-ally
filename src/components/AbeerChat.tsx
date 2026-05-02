@@ -158,6 +158,9 @@ const css = `
   .abeer-textarea { outline:none; resize:none; border:none; background:transparent; width:100%;
     font-family: var(--font); font-size: 14px; color: var(--text); line-height: 1.6; max-height: 130px; }
   .abeer-textarea::placeholder { color: var(--text-muted); }
+  .abeer-cta { transition: transform .18s ease, box-shadow .18s ease; }
+  .abeer-cta:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(91,61,165,.42) !important; }
+  .abeer-cta:active { transform: translateY(0); }
 `;
 
 // ── Sub-components (forwardRef to silence ref warnings) ─────────────────────
