@@ -331,7 +331,8 @@ export default function AbeerChat() {
         const reply =
           (data as { reply?: string })?.reply?.trim() ||
           "حدث خطأ. حاولي مرة أخرى.";
-        setMessages((p) => [...p, { role: "assistant", content: reply }]);
+        const paid = isPaidTopic(text, qaData);
+        setMessages((p) => [...p, { role: "assistant", content: reply, paid }]);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         setMessages((p) => [
