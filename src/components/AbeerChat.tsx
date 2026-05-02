@@ -11,10 +11,69 @@ const SHEET_CSV_URL = "";
 const REFRESH_MS = 60 * 60 * 1000;
 
 const AVATAR_URL = abeerAvatar;
+const COURSE_URL = "https://www.abirlogic.com/en/decoding";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type Row = { q: string; a: string; t: string };
-type Msg = { role: "user" | "assistant"; content: string };
+type Msg = { role: "user" | "assistant"; content: string; paid?: boolean };
+
+// ── Paid-topic detection ─────────────────────────────────────────────────────
+// Arabic-aware normalization: strip diacritics, unify alef/ya/ta-marbuta,
+// drop tatweel & punctuation, collapse whitespace.
+function normalizeAr(s: string): string {
+  return s
+    .replace(/[\u064B-\u0652\u0670\u0640]/g, "") // diacritics + tatweel
+    .replace(/[إأآا]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/ة/g, "ه")
+    .replace(/ؤ/g, "و")
+    .replace(/ئ/g, "ي")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+// Arabic stopwords to ignore when token-matching
+const AR_STOP = new Set([
+  "في", "من", "الى", "على", "عن", "مع", "هو", "هي", "انا", "انت", "هذا",
+  "هذه", "ذلك", "تلك", "كيف", "ماذا", "متى", "اين", "لماذا", "ليش", "شو",
+  "ما", "لا", "نعم", "ان", "او", "ثم", "كان", "يكون", "كل", "بعض", "كثير",
+  "اكثر", "اقل", "جدا", "ايضا", "ولكن", "لكن", "حتى", "قد", "عند", "بعد",
+  "قبل", "اذا", "لو", "هل", "بس", "يعني",
+]);
+
+function tokens(s: string): string[] {
+  return normalizeAr(s)
+    .split(" ")
+    .filter((t) => t.length >= 3 && !AR_STOP.has(t));
+}
+
+// Returns true if the user question best matches a "مدفوع" row.
+function isPaidTopic(userQuestion: string, rows: Row[]): boolean {
+  if (!rows.length) return false;
+  const qTokens = new Set(tokens(userQuestion));
+  if (qTokens.size === 0) return false;
+
+  let bestPaid = 0;
+  let bestFree = 0;
+  for (const r of rows) {
+    const rTokens = tokens(r.q);
+    if (!rTokens.length) continue;
+    let overlap = 0;
+    for (const t of rTokens) if (qTokens.has(t)) overlap++;
+    // Jaccard-ish score normalized by row length
+    const score = overlap / Math.max(rTokens.length, 3);
+    if (r.t === "مدفوع") {
+      if (score > bestPaid) bestPaid = score;
+    } else {
+      if (score > bestFree) bestFree = score;
+    }
+  }
+  // Trigger only if paid match is meaningful AND beats free match
+  return bestPaid >= 0.34 && bestPaid > bestFree;
+}
+
 
 // ── CSV ──────────────────────────────────────────────────────────────────────
 function parseSheet(csv: string): Row[] {
