@@ -49,29 +49,40 @@ function tokens(s: string): string[] {
     .filter((t) => t.length >= 3 && !AR_STOP.has(t));
 }
 
-// Returns true if the user question best matches a "مدفوع" row.
-function isPaidTopic(userQuestion: string, rows: Row[]): boolean {
-  if (!rows.length) return false;
+// Returns the best-matching paid row, or null. Trigger only if a paid row
+// scores meaningfully AND beats any free-row match.
+function findPaidMatch(userQuestion: string, rows: Row[]): Row | null {
+  if (!rows.length) return null;
   const qTokens = new Set(tokens(userQuestion));
-  if (qTokens.size === 0) return false;
+  if (qTokens.size === 0) return null;
 
-  let bestPaid = 0;
+  let bestPaidScore = 0;
+  let bestPaidRow: Row | null = null;
   let bestFree = 0;
   for (const r of rows) {
     const rTokens = tokens(r.q);
     if (!rTokens.length) continue;
     let overlap = 0;
     for (const t of rTokens) if (qTokens.has(t)) overlap++;
-    // Jaccard-ish score normalized by row length
     const score = overlap / Math.max(rTokens.length, 3);
     if (r.t === "مدفوع") {
-      if (score > bestPaid) bestPaid = score;
-    } else {
-      if (score > bestFree) bestFree = score;
+      if (score > bestPaidScore) {
+        bestPaidScore = score;
+        bestPaidRow = r;
+      }
+    } else if (score > bestFree) {
+      bestFree = score;
     }
   }
-  // Trigger only if paid match is meaningful AND beats free match
-  return bestPaid >= 0.34 && bestPaid > bestFree;
+  if (bestPaidScore >= 0.34 && bestPaidScore > bestFree) return bestPaidRow;
+  return null;
+}
+
+// Take roughly the first ~20% of words (min 6, max 18) as a teaser.
+function teaserFromAnswer(answer: string): string {
+  const words = answer.split(/\s+/).filter(Boolean);
+  const take = Math.min(18, Math.max(6, Math.ceil(words.length * 0.2)));
+  return words.slice(0, take).join(" ");
 }
 
 
