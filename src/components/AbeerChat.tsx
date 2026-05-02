@@ -501,39 +501,68 @@ export default function AbeerChat() {
                   <Avatar size={32} />
                 )}
 
-                <div
-                  style={{
-                    maxWidth: "78%",
-                    background: isUser
-                      ? "linear-gradient(135deg, var(--purple), var(--purple-deep))"
-                      : "var(--white)",
-                    color: isUser ? "white" : "var(--text)",
-                    border: isUser ? "none" : "1px solid var(--border)",
-                    padding: "10px 13px",
-                    borderRadius: 14,
-                    borderBottomRightRadius: isUser ? 4 : 14,
-                    borderBottomLeftRadius: isUser ? 14 : 4,
-                    fontSize: 14,
-                    lineHeight: 1.7,
-                    whiteSpace: "pre-wrap",
-                    boxShadow: isUser
-                      ? "0 2px 12px rgba(91,61,165,.25)"
-                      : "0 1px 4px rgba(91,61,165,.06)",
-                  }}
-                >
-                  {!isUser && (
-                    <div
+                <div style={{ display: "flex", flexDirection: "column", maxWidth: "78%", alignItems: isUser ? "flex-end" : "flex-start", gap: 6 }}>
+                  <div
+                    style={{
+                      background: isUser
+                        ? "linear-gradient(135deg, var(--purple), var(--purple-deep))"
+                        : "var(--white)",
+                      color: isUser ? "white" : "var(--text)",
+                      border: isUser ? "none" : "1px solid var(--border)",
+                      padding: "10px 13px",
+                      borderRadius: 14,
+                      borderBottomRightRadius: isUser ? 4 : 14,
+                      borderBottomLeftRadius: isUser ? 14 : 4,
+                      fontSize: 14,
+                      lineHeight: 1.7,
+                      whiteSpace: "pre-wrap",
+                      boxShadow: isUser
+                        ? "0 2px 12px rgba(91,61,165,.25)"
+                        : "0 1px 4px rgba(91,61,165,.06)",
+                    }}
+                  >
+                    {!isUser && (
+                      <div
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 700,
+                          color: "var(--purple)",
+                          marginBottom: 4,
+                        }}
+                      >
+                        عبير ✦
+                      </div>
+                    )}
+                    {msg.content}
+                  </div>
+
+                  {!isUser && msg.paid && (
+                    <a
+                      href={COURSE_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="abeer-cta"
                       style={{
-                        fontSize: 10,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 8,
+                        background: "linear-gradient(135deg, var(--purple), var(--purple-deep))",
+                        color: "#fff",
+                        textDecoration: "none",
+                        padding: "10px 14px",
+                        borderRadius: 12,
+                        fontSize: 13,
                         fontWeight: 700,
-                        color: "var(--purple)",
-                        marginBottom: 4,
+                        fontFamily: "var(--font)",
+                        boxShadow: "0 4px 14px rgba(91,61,165,.32)",
+                        border: "1px solid rgba(232,184,75,.4)",
                       }}
                     >
-                      عبير ✦
-                    </div>
+                      <span style={{ color: "var(--gold)" }}>✦</span>
+                      احجزي جلسة الديكودنغ
+                      <span style={{ opacity: 0.8, fontSize: 12 }}>←</span>
+                    </a>
                   )}
-                  {msg.content}
                 </div>
               </div>
             );
