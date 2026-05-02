@@ -11,10 +11,69 @@ const SHEET_CSV_URL = "";
 const REFRESH_MS = 60 * 60 * 1000;
 
 const AVATAR_URL = abeerAvatar;
+const COURSE_URL = "https://www.abirlogic.com/en/decoding";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type Row = { q: string; a: string; t: string };
-type Msg = { role: "user" | "assistant"; content: string };
+type Msg = { role: "user" | "assistant"; content: string; paid?: boolean };
+
+// ── Paid-topic detection ─────────────────────────────────────────────────────
+// Arabic-aware normalization: strip diacritics, unify alef/ya/ta-marbuta,
+// drop tatweel & punctuation, collapse whitespace.
+function normalizeAr(s: string): string {
+  return s
+    .replace(/[\u064B-\u0652\u0670\u0640]/g, "") // diacritics + tatweel
+    .replace(/[إأآا]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/ة/g, "ه")
+    .replace(/ؤ/g, "و")
+    .replace(/ئ/g, "ي")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+// Arabic stopwords to ignore when token-matching
+const AR_STOP = new Set([
+  "في", "من", "الى", "على", "عن", "مع", "هو", "هي", "انا", "انت", "هذا",
+  "هذه", "ذلك", "تلك", "كيف", "ماذا", "متى", "اين", "لماذا", "ليش", "شو",
+  "ما", "لا", "نعم", "ان", "او", "ثم", "كان", "يكون", "كل", "بعض", "كثير",
+  "اكثر", "اقل", "جدا", "ايضا", "ولكن", "لكن", "حتى", "قد", "عند", "بعد",
+  "قبل", "اذا", "لو", "هل", "بس", "يعني",
+]);
+
+function tokens(s: string): string[] {
+  return normalizeAr(s)
+    .split(" ")
+    .filter((t) => t.length >= 3 && !AR_STOP.has(t));
+}
+
+// Returns true if the user question best matches a "مدفوع" row.
+function isPaidTopic(userQuestion: string, rows: Row[]): boolean {
+  if (!rows.length) return false;
+  const qTokens = new Set(tokens(userQuestion));
+  if (qTokens.size === 0) return false;
+
+  let bestPaid = 0;
+  let bestFree = 0;
+  for (const r of rows) {
+    const rTokens = tokens(r.q);
+    if (!rTokens.length) continue;
+    let overlap = 0;
+    for (const t of rTokens) if (qTokens.has(t)) overlap++;
+    // Jaccard-ish score normalized by row length
+    const score = overlap / Math.max(rTokens.length, 3);
+    if (r.t === "مدفوع") {
+      if (score > bestPaid) bestPaid = score;
+    } else {
+      if (score > bestFree) bestFree = score;
+    }
+  }
+  // Trigger only if paid match is meaningful AND beats free match
+  return bestPaid >= 0.34 && bestPaid > bestFree;
+}
+
 
 // ── CSV ──────────────────────────────────────────────────────────────────────
 function parseSheet(csv: string): Row[] {
@@ -99,6 +158,9 @@ const css = `
   .abeer-textarea { outline:none; resize:none; border:none; background:transparent; width:100%;
     font-family: var(--font); font-size: 14px; color: var(--text); line-height: 1.6; max-height: 130px; }
   .abeer-textarea::placeholder { color: var(--text-muted); }
+  .abeer-cta { transition: transform .18s ease, box-shadow .18s ease; }
+  .abeer-cta:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(91,61,165,.42) !important; }
+  .abeer-cta:active { transform: translateY(0); }
 `;
 
 // ── Sub-components (forwardRef to silence ref warnings) ─────────────────────
@@ -272,7 +334,8 @@ export default function AbeerChat() {
         const reply =
           (data as { reply?: string })?.reply?.trim() ||
           "حدث خطأ. حاولي مرة أخرى.";
-        setMessages((p) => [...p, { role: "assistant", content: reply }]);
+        const paid = isPaidTopic(text, qaData);
+        setMessages((p) => [...p, { role: "assistant", content: reply, paid }]);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         setMessages((p) => [
@@ -441,39 +504,68 @@ export default function AbeerChat() {
                   <Avatar size={32} />
                 )}
 
-                <div
-                  style={{
-                    maxWidth: "78%",
-                    background: isUser
-                      ? "linear-gradient(135deg, var(--purple), var(--purple-deep))"
-                      : "var(--white)",
-                    color: isUser ? "white" : "var(--text)",
-                    border: isUser ? "none" : "1px solid var(--border)",
-                    padding: "10px 13px",
-                    borderRadius: 14,
-                    borderBottomRightRadius: isUser ? 4 : 14,
-                    borderBottomLeftRadius: isUser ? 14 : 4,
-                    fontSize: 14,
-                    lineHeight: 1.7,
-                    whiteSpace: "pre-wrap",
-                    boxShadow: isUser
-                      ? "0 2px 12px rgba(91,61,165,.25)"
-                      : "0 1px 4px rgba(91,61,165,.06)",
-                  }}
-                >
-                  {!isUser && (
-                    <div
+                <div style={{ display: "flex", flexDirection: "column", maxWidth: "78%", alignItems: isUser ? "flex-end" : "flex-start", gap: 6 }}>
+                  <div
+                    style={{
+                      background: isUser
+                        ? "linear-gradient(135deg, var(--purple), var(--purple-deep))"
+                        : "var(--white)",
+                      color: isUser ? "white" : "var(--text)",
+                      border: isUser ? "none" : "1px solid var(--border)",
+                      padding: "10px 13px",
+                      borderRadius: 14,
+                      borderBottomRightRadius: isUser ? 4 : 14,
+                      borderBottomLeftRadius: isUser ? 14 : 4,
+                      fontSize: 14,
+                      lineHeight: 1.7,
+                      whiteSpace: "pre-wrap",
+                      boxShadow: isUser
+                        ? "0 2px 12px rgba(91,61,165,.25)"
+                        : "0 1px 4px rgba(91,61,165,.06)",
+                    }}
+                  >
+                    {!isUser && (
+                      <div
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 700,
+                          color: "var(--purple)",
+                          marginBottom: 4,
+                        }}
+                      >
+                        عبير ✦
+                      </div>
+                    )}
+                    {msg.content}
+                  </div>
+
+                  {!isUser && msg.paid && (
+                    <a
+                      href={COURSE_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="abeer-cta"
                       style={{
-                        fontSize: 10,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 8,
+                        background: "linear-gradient(135deg, var(--purple), var(--purple-deep))",
+                        color: "#fff",
+                        textDecoration: "none",
+                        padding: "10px 14px",
+                        borderRadius: 12,
+                        fontSize: 13,
                         fontWeight: 700,
-                        color: "var(--purple)",
-                        marginBottom: 4,
+                        fontFamily: "var(--font)",
+                        boxShadow: "0 4px 14px rgba(91,61,165,.32)",
+                        border: "1px solid rgba(232,184,75,.4)",
                       }}
                     >
-                      عبير ✦
-                    </div>
+                      <span style={{ color: "var(--gold)" }}>✦</span>
+                      احجزي جلسة الديكودنغ
+                      <span style={{ opacity: 0.8, fontSize: 12 }}>←</span>
+                    </a>
                   )}
-                  {msg.content}
                 </div>
               </div>
             );
