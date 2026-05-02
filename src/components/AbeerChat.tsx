@@ -15,7 +15,7 @@ const COURSE_URL = "https://www.abirlogic.com/en/decoding";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type Row = { q: string; a: string; t: string };
-type Msg = { role: "user" | "assistant"; content: string; paid?: boolean };
+type Msg = { role: "user" | "assistant"; content: string; paid?: boolean; teaser?: string };
 
 // ── Paid-topic detection ─────────────────────────────────────────────────────
 // Arabic-aware normalization: strip diacritics, unify alef/ya/ta-marbuta,
@@ -342,11 +342,21 @@ export default function AbeerChat() {
 
         if (error) throw error;
 
-        const reply =
-          (data as { reply?: string })?.reply?.trim() ||
-          "حدث خطأ. حاولي مرة أخرى.";
-        const paid = isPaidTopic(text, qaData);
-        setMessages((p) => [...p, { role: "assistant", content: reply, paid }]);
+        const replyRaw = (data as { reply?: string })?.reply?.trim() || "";
+        const paidRow = findPaidMatch(text, qaData);
+
+        if (paidRow) {
+          // Paid topic → tease using the real CSV answer (deterministic),
+          // ignore the model output to keep the upsell tight.
+          const teaser = teaserFromAnswer(paidRow.a);
+          setMessages((p) => [
+            ...p,
+            { role: "assistant", content: paidRow.a, teaser, paid: true },
+          ]);
+        } else {
+          const reply = replyRaw || "حدث خطأ. حاولي مرة أخرى.";
+          setMessages((p) => [...p, { role: "assistant", content: reply }]);
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         setMessages((p) => [
