@@ -172,6 +172,14 @@ const css = `
   .abeer-cta { transition: transform .18s ease, box-shadow .18s ease; }
   .abeer-cta:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(91,61,165,.42) !important; }
   .abeer-cta:active { transform: translateY(0); }
+  .abeer-blurred {
+    filter: blur(5px);
+    user-select: none;
+    pointer-events: none;
+    color: var(--text-dim);
+    -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,.3) 100%);
+            mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,.3) 100%);
+  }
 `;
 
 // ── Sub-components (forwardRef to silence ref warnings) ─────────────────────
