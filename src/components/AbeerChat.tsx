@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, forwardRef } from "react";
 import Papa from "papaparse";
 import bundledCsv from "@/assets/abeer-qa.csv?raw";
+import abeerAvatar from "@/assets/abeer-avatar.jpg";
 import { supabase } from "@/integrations/supabase/client";
 
 // ── DEVELOPER CONFIG ─────────────────────────────────────────────────────────
@@ -9,7 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 const SHEET_CSV_URL = "";
 const REFRESH_MS = 60 * 60 * 1000;
 
-const AVATAR_URL = "https://abirlogic.com/wp-content/uploads/abir-photo.jpg";
+const AVATAR_URL = abeerAvatar;
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type Row = { q: string; a: string; t: string };
