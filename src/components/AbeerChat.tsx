@@ -1,0 +1,691 @@
+import { useState, useEffect, useRef, useCallback } from "react";
+import Papa from "papaparse";
+import bundledCsv from "@/assets/abeer-qa.csv?raw";
+
+// ── DEVELOPER CONFIG ─────────────────────────────────────────────────────────
+// Optional live refresh from a published Google Sheet (CSV). Leave empty to
+// rely solely on the bundled CSV.
+const SHEET_CSV_URL = "";
+const REFRESH_MS = 60 * 60 * 1000;
+
+// NVIDIA Build API
+const NVIDIA_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
+const NVIDIA_MODEL = "meta/llama-3.3-70b-instruct";
+const NVIDIA_KEY_STORAGE = "nvidia_api_key";
+
+const AVATAR_URL =
+  "https://abirlogic.com/wp-content/uploads/abir-photo.jpg";
+
+// ── Types ────────────────────────────────────────────────────────────────────
+type Row = { q: string; a: string; t: string };
+type Msg = { role: "user" | "assistant"; content: string };
+
+// ── CSV ──────────────────────────────────────────────────────────────────────
+function parseSheet(csv: string): Row[] {
+  const { data } = Papa.parse<Record<string, string>>(csv, {
+    header: true,
+    skipEmptyLines: true,
+  });
+  return data
+    .filter((r) => r["سؤال العميل"] && r["جواب"] && r["نوع السؤال"])
+    .map((r) => ({
+      q: r["سؤال العميل"].trim(),
+      a: r["جواب"].trim(),
+      t: r["نوع السؤال"].trim(),
+    }));
+}
+
+// ── System prompt ────────────────────────────────────────────────────────────
+function buildPrompt(rows: Row[]) {
+  const free = rows.filter((r) => r.t === "مجاني");
+  const paid = rows.filter((r) => r.t === "مدفوع");
+  const freeBlock = free
+    .map((r, i) => `[${i + 1}] س: ${r.q}\nج: ${r.a}`)
+    .join("\n\n");
+  const paidBlock = paid.map((r, i) => `[${i + 1}] ${r.q}`).join("\n");
+  return (
+    "أنتِ الصوت الرقمي لعبير الرفاعي — تتحدثين بأسلوبها وفلسفتها بالضبط.\n\n" +
+    "قواعد صارمة:\n" +
+    "١. أجيبي من قاعدة البيانات فقط — لا تخترعي.\n" +
+    "٢. مجاني → أجيبي بالكامل بنبرة عبير الحازمة السيادية.\n" +
+    "٣. مدفوع → شوّقي فقط دون كشف الجواب، وجهيها لحجز جلسة الديكودنغ.\n" +
+    "٤. خارج القاعدة → وجهي للجلسة الشخصية على abirlogic.com\n" +
+    "٥. لا تقولي أنا بوت — أنتِ صوت عبير الرقمي.\n" +
+    "٦. الطول: جملة أو جملتان — مباشرة، بلا مقدمات أو خاتمات.\n" +
+    "٧. استخدمي مصطلحات عبير: مصفوفة، كود، رندرة، سيادة، نور عمودي، إزاحة، ديكودنغ.\n" +
+    "٨. تكيّفي مع لهجة العميلة (شامي / خليجي / فصحى).\n\n" +
+    "── أسئلة مجانية ──\n" +
+    freeBlock +
+    "\n\n── مواضيع مدفوعة (شوّقي فقط) ──\n" +
+    paidBlock
+  );
+}
+
+// ── Styles ───────────────────────────────────────────────────────────────────
+const css = `
+  @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;900&display=swap');
+  :root {
+    --purple:      #5B3DA5;
+    --purple-deep: #3D2775;
+    --purple-soft: #7B5BC4;
+    --purple-pale: #F0EBF9;
+    --purple-mist: #EAE3F7;
+    --gold:        #E8B84B;
+    --bg:          #F7F5FC;
+    --white:       #FFFFFF;
+    --border:      #DDD5F0;
+    --text:        #1C1130;
+    --text-dim:    #6B5B8E;
+    --text-muted:  #A896C8;
+    --font:        'Tajawal', sans-serif;
+  }
+  .abeer-root, .abeer-root * { box-sizing: border-box; }
+  .abeer-root { font-family: var(--font); }
+  .abeer-scroll::-webkit-scrollbar { width: 4px; }
+  .abeer-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  @keyframes abeerFadeUp { from { opacity: 0; transform: translateY(8px);} to {opacity:1; transform:translateY(0);} }
+  @keyframes abeerBlink { 0%,80%,100%{transform:scale(0.55);opacity:.35} 40%{transform:scale(1);opacity:1} }
+  @keyframes abeerGreen { 0%,100%{opacity:.55} 50%{opacity:1} }
+  .abeer-enter { animation: abeerFadeUp .28s ease forwards; }
+  .abeer-dot { width:7px; height:7px; border-radius:50%; background: var(--purple-soft); display:inline-block; margin:0 2px; }
+  .abeer-dot:nth-child(1){ animation: abeerBlink 1.3s ease-in-out infinite 0s; }
+  .abeer-dot:nth-child(2){ animation: abeerBlink 1.3s ease-in-out infinite .18s; }
+  .abeer-dot:nth-child(3){ animation: abeerBlink 1.3s ease-in-out infinite .36s; }
+  .abeer-sendbtn { transition: transform .15s ease; }
+  .abeer-sendbtn:hover:not(:disabled){ transform: scale(1.07); }
+  .abeer-sendbtn:active:not(:disabled){ transform: scale(.94); }
+  .abeer-chip { transition: all .2s ease; cursor: pointer; }
+  .abeer-chip:hover { background: var(--purple-mist); border-color: var(--purple-soft); color: var(--purple); }
+  .abeer-online::after {
+    content:""; display:inline-block; width:7px; height:7px; border-radius:50%;
+    background:#22C55E; margin-inline-start:6px; animation: abeerGreen 1.6s ease-in-out infinite;
+  }
+  .abeer-textarea { outline:none; resize:none; border:none; background:transparent; width:100%;
+    font-family: var(--font); font-size: 14px; color: var(--text); line-height: 1.6; max-height: 130px; }
+  .abeer-textarea::placeholder { color: var(--text-muted); }
+`;
+
+// ── Sub-components ───────────────────────────────────────────────────────────
+function Avatar({ size = 38 }: { size?: number }) {
+  const border = size > 50 ? 3 : 2;
+  return (
+    <div
+      style={{
+        width: size,
+        height: size,
+        borderRadius: "50%",
+        background: "linear-gradient(135deg, #5B3DA5, #3D2775)",
+        border: `${border}px solid #fff`,
+        boxShadow: "0 2px 10px rgba(91,61,165,.25)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        color: "#fff",
+        fontWeight: 700,
+        fontSize: size * 0.42,
+        flexShrink: 0,
+        overflow: "hidden",
+      }}
+    >
+      <img
+        src={AVATAR_URL}
+        alt="عبير"
+        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+        onError={(e) => {
+          (e.currentTarget as HTMLImageElement).style.display = "none";
+        }}
+      />
+    </div>
+  );
+}
+
+function SendIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+      <path
+        d="M3 11.5L21 3l-8.5 18-2-8.5L3 11.5z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+const CHIPS = [
+  "كيف أغير واقعي وأصير شخصاً مؤثراً؟",
+  "ليش الناس حولي يستنزفون طاقتي؟",
+  "شو هو اختبار الديكودنغ وكيف يساعدني؟",
+];
+
+function Welcome({ onAsk }: { onAsk: (q: string) => void }) {
+  return (
+    <div className="abeer-enter" style={{ textAlign: "center", padding: "32px 16px" }}>
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}>
+        <Avatar size={84} />
+      </div>
+      <h2
+        style={{
+          fontSize: 22,
+          fontWeight: 800,
+          color: "var(--text)",
+          margin: 0,
+        }}
+      >
+        عبير الرفاعي
+      </h2>
+      <div style={{ fontSize: 13, color: "var(--purple)", marginTop: 4, fontWeight: 500 }}>
+        مساعدتي الرقمية — اسأليني بحرية ✦
+      </div>
+      <p style={{ fontSize: 13, color: "var(--text-dim)", marginTop: 14, lineHeight: 1.7 }}>
+        سواء عن الصحة، الطاقة، العلاقات، أو السيادة — أنا هنا.
+      </p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 22 }}>
+        {CHIPS.map((q) => (
+          <button
+            key={q}
+            className="abeer-chip"
+            onClick={() => onAsk(q)}
+            style={{
+              border: "1px solid var(--border)",
+              background: "var(--white)",
+              color: "var(--text-dim)",
+              padding: "11px 14px",
+              borderRadius: 12,
+              fontFamily: "var(--font)",
+              fontSize: 13,
+              textAlign: "right",
+            }}
+          >
+            {q}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Main ─────────────────────────────────────────────────────────────────────
+export default function AbeerChat() {
+  const [qaData, setQaData] = useState<Row[]>([]);
+  const [messages, setMessages] = useState<Msg[]>([]);
+  const [input, setInput] = useState("");
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [apiKey, setApiKey] = useState<string>(
+    () => localStorage.getItem(NVIDIA_KEY_STORAGE) || ""
+  );
+  const [showKeyPanel, setShowKeyPanel] = useState(false);
+
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-scroll
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isStreaming]);
+
+  // Auto-grow textarea
+  useEffect(() => {
+    if (!textareaRef.current) return;
+    textareaRef.current.style.height = "auto";
+    textareaRef.current.style.height =
+      Math.min(textareaRef.current.scrollHeight, 130) + "px";
+  }, [input]);
+
+  // Bundled CSV on mount
+  useEffect(() => {
+    const rows = parseSheet(bundledCsv);
+    if (rows.length) setQaData(rows);
+  }, []);
+
+  // Optional live refresh
+  const fetchSheet = useCallback(() => {
+    if (!SHEET_CSV_URL) return;
+    fetch(SHEET_CSV_URL)
+      .then((r) => r.text())
+      .then((text) => {
+        const rows = parseSheet(text);
+        if (rows.length) setQaData(rows);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!SHEET_CSV_URL) return;
+    fetchSheet();
+    const id = setInterval(fetchSheet, REFRESH_MS);
+    return () => clearInterval(id);
+  }, [fetchSheet]);
+
+  const saveKey = (k: string) => {
+    setApiKey(k);
+    if (k) localStorage.setItem(NVIDIA_KEY_STORAGE, k);
+    else localStorage.removeItem(NVIDIA_KEY_STORAGE);
+  };
+
+  const sendMessage = useCallback(
+    (overrideText?: string) => {
+      const text = (overrideText ?? input).trim();
+      if (!text || isStreaming) return;
+
+      if (!apiKey) {
+        setShowKeyPanel(true);
+        return;
+      }
+
+      const history: Msg[] = [...messages, { role: "user", content: text }];
+      setMessages(history);
+      setInput("");
+      setIsStreaming(true);
+
+      const system =
+        qaData.length > 0
+          ? buildPrompt(qaData)
+          : "أنتِ صوت عبير الرفاعي الرقمي. وجهي العميلة لحجز جلسة ديكودنغ على abirlogic.com";
+
+      fetch(NVIDIA_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          model: NVIDIA_MODEL,
+          temperature: 0.2,
+          max_tokens: 800,
+          stream: false,
+          messages: [
+            { role: "system", content: system },
+            ...history.map((m) => ({ role: m.role, content: m.content })),
+          ],
+        }),
+      })
+        .then(async (res) => {
+          if (!res.ok) {
+            const t = await res.text();
+            throw new Error(`${res.status}: ${t.slice(0, 200)}`);
+          }
+          return res.json();
+        })
+        .then((data) => {
+          const reply =
+            data?.choices?.[0]?.message?.content?.trim() ||
+            "حدث خطأ. حاولي مرة أخرى.";
+          setMessages((p) => [...p, { role: "assistant", content: reply }]);
+        })
+        .catch((err) => {
+          setMessages((p) => [
+            ...p,
+            {
+              role: "assistant",
+              content:
+                "تعذر الاتصال بـ NVIDIA. تحققي من المفتاح والاتصال.\n" +
+                String(err.message || err),
+            },
+          ]);
+        })
+        .finally(() => setIsStreaming(false));
+    },
+    [input, isStreaming, messages, qaData, apiKey]
+  );
+
+  const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  };
+
+  const canSend = input.trim().length > 0 && !isStreaming;
+
+  return (
+    <div
+      className="abeer-root"
+      dir="rtl"
+      style={{
+        height: "100vh",
+        width: "100%",
+        background: "var(--bg)",
+        display: "flex",
+        justifyContent: "center",
+      }}
+    >
+      <style>{css}</style>
+
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 480,
+          height: "100%",
+          background: "var(--white)",
+          display: "flex",
+          flexDirection: "column",
+          boxShadow: "0 0 40px rgba(91,61,165,.08)",
+        }}
+      >
+        {/* Header */}
+        <div
+          style={{
+            padding: "14px 16px 12px",
+            borderBottom: "1px solid var(--border)",
+            background: "var(--white)",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 12,
+            }}
+          >
+            <div>
+              <div
+                style={{
+                  fontSize: 15,
+                  fontWeight: 800,
+                  color: "var(--text)",
+                  letterSpacing: 0.5,
+                }}
+              >
+                ABIR ELRIFAI
+              </div>
+              <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
+                Abir Logic
+              </div>
+            </div>
+            <div
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                color: "var(--purple)",
+                background: "var(--purple-pale)",
+                padding: "4px 10px",
+                borderRadius: 999,
+              }}
+            >
+              AI مساعدة
+            </div>
+          </div>
+
+          <div
+            style={{
+              height: 1,
+              background:
+                "linear-gradient(90deg, transparent, var(--border), transparent)",
+              marginBottom: 12,
+            }}
+          />
+
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <Avatar size={42} />
+            <div>
+              <div
+                style={{
+                  fontSize: 14,
+                  fontWeight: 700,
+                  color: "var(--text)",
+                }}
+              >
+                عبير الرفاعي
+              </div>
+              <div
+                className="abeer-online"
+                style={{ fontSize: 11, color: "var(--text-dim)" }}
+              >
+                متصلة الآن
+              </div>
+            </div>
+            <button
+              onClick={() => setShowKeyPanel((s) => !s)}
+              title="مفتاح NVIDIA"
+              style={{
+                marginInlineStart: "auto",
+                background: apiKey ? "var(--purple-pale)" : "#FEF3C7",
+                color: apiKey ? "var(--purple)" : "#92400E",
+                border: "none",
+                borderRadius: 10,
+                padding: "6px 10px",
+                fontSize: 11,
+                fontFamily: "var(--font)",
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              {apiKey ? "✓ مفتاح" : "أضيفي مفتاح"}
+            </button>
+          </div>
+
+          {showKeyPanel && (
+            <div
+              style={{
+                marginTop: 10,
+                padding: 10,
+                background: "var(--purple-pale)",
+                borderRadius: 10,
+                fontSize: 11,
+                color: "var(--text-dim)",
+              }}
+            >
+              <div style={{ marginBottom: 6, lineHeight: 1.6 }}>
+                مفتاح NVIDIA Build (يُحفظ محلياً في المتصفح فقط):
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <input
+                  type="password"
+                  defaultValue={apiKey}
+                  placeholder="nvapi-..."
+                  onBlur={(e) => saveKey(e.target.value.trim())}
+                  style={{
+                    flex: 1,
+                    border: "1px solid var(--border)",
+                    background: "white",
+                    borderRadius: 8,
+                    padding: "8px 10px",
+                    fontFamily: "var(--font)",
+                    fontSize: 12,
+                    direction: "ltr",
+                  }}
+                />
+                <button
+                  onClick={() => setShowKeyPanel(false)}
+                  style={{
+                    background: "var(--purple)",
+                    color: "white",
+                    border: "none",
+                    borderRadius: 8,
+                    padding: "0 12px",
+                    fontFamily: "var(--font)",
+                    fontWeight: 700,
+                    fontSize: 12,
+                    cursor: "pointer",
+                  }}
+                >
+                  حفظ
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Messages */}
+        <div
+          className="abeer-scroll"
+          style={{
+            flex: 1,
+            overflowY: "auto",
+            padding: "16px",
+            background: "var(--bg)",
+          }}
+        >
+          {messages.length === 0 && <Welcome onAsk={(q) => sendMessage(q)} />}
+
+          {messages.map((msg, i) => {
+            const isUser = msg.role === "user";
+            return (
+              <div
+                key={i}
+                className="abeer-enter"
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  marginBottom: 14,
+                  flexDirection: isUser ? "row-reverse" : "row",
+                  alignItems: "flex-end",
+                }}
+              >
+                {isUser ? (
+                  <div
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: "50%",
+                      background: "var(--purple-mist)",
+                      color: "var(--purple)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontWeight: 700,
+                      fontSize: 13,
+                      flexShrink: 0,
+                    }}
+                  >
+                    أ
+                  </div>
+                ) : (
+                  <Avatar size={32} />
+                )}
+
+                <div
+                  style={{
+                    maxWidth: "78%",
+                    background: isUser
+                      ? "linear-gradient(135deg, var(--purple), var(--purple-deep))"
+                      : "var(--white)",
+                    color: isUser ? "white" : "var(--text)",
+                    border: isUser ? "none" : "1px solid var(--border)",
+                    padding: "10px 13px",
+                    borderRadius: 14,
+                    borderBottomRightRadius: isUser ? 4 : 14,
+                    borderBottomLeftRadius: isUser ? 14 : 4,
+                    fontSize: 14,
+                    lineHeight: 1.7,
+                    whiteSpace: "pre-wrap",
+                    boxShadow: isUser
+                      ? "0 2px 12px rgba(91,61,165,.25)"
+                      : "0 1px 4px rgba(91,61,165,.06)",
+                  }}
+                >
+                  {!isUser && (
+                    <div
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        color: "var(--purple)",
+                        marginBottom: 4,
+                      }}
+                    >
+                      عبير ✦
+                    </div>
+                  )}
+                  {msg.content}
+                </div>
+              </div>
+            );
+          })}
+
+          {isStreaming && (
+            <div
+              className="abeer-enter"
+              style={{ display: "flex", gap: 8, alignItems: "flex-end" }}
+            >
+              <Avatar size={32} />
+              <div
+                style={{
+                  background: "var(--white)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 14,
+                  borderBottomLeftRadius: 4,
+                  padding: "12px 16px",
+                }}
+              >
+                <span className="abeer-dot" />
+                <span className="abeer-dot" />
+                <span className="abeer-dot" />
+              </div>
+            </div>
+          )}
+
+          <div ref={bottomRef} />
+        </div>
+
+        {/* Input */}
+        <div
+          style={{
+            padding: "12px 14px 14px",
+            borderTop: "1px solid var(--border)",
+            background: "var(--white)",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              alignItems: "flex-end",
+              background: "var(--bg)",
+              border: "1px solid var(--border)",
+              borderRadius: 16,
+              padding: "8px 12px",
+            }}
+          >
+            <textarea
+              ref={textareaRef}
+              className="abeer-textarea"
+              rows={1}
+              placeholder="اكتبي سؤالك هنا..."
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKey}
+            />
+            <button
+              className="abeer-sendbtn"
+              onClick={() => sendMessage()}
+              disabled={!canSend}
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 12,
+                flexShrink: 0,
+                background: canSend
+                  ? "linear-gradient(135deg, #5B3DA5, #3D2775)"
+                  : "#DDD5F0",
+                border: "none",
+                cursor: canSend ? "pointer" : "default",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: canSend ? "white" : "#A896C8",
+                boxShadow: canSend ? "0 2px 10px rgba(91,61,165,.3)" : "none",
+              }}
+            >
+              <SendIcon />
+            </button>
+          </div>
+
+          <div
+            style={{
+              textAlign: "center",
+              marginTop: 8,
+              fontSize: 10,
+              color: "var(--text-muted)",
+            }}
+          >
+            الإجابات مستندة لمنهج عبير الرفاعي · abirlogic.com
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
