@@ -15,7 +15,7 @@ const COURSE_URL = "https://www.abirlogic.com/en/decoding";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type Row = { q: string; a: string; t: string };
-type Msg = { role: "user" | "assistant"; content: string; paid?: boolean };
+type Msg = { role: "user" | "assistant"; content: string; paid?: boolean; teaser?: string };
 
 // ── Paid-topic detection ─────────────────────────────────────────────────────
 // Arabic-aware normalization: strip diacritics, unify alef/ya/ta-marbuta,
@@ -49,29 +49,40 @@ function tokens(s: string): string[] {
     .filter((t) => t.length >= 3 && !AR_STOP.has(t));
 }
 
-// Returns true if the user question best matches a "مدفوع" row.
-function isPaidTopic(userQuestion: string, rows: Row[]): boolean {
-  if (!rows.length) return false;
+// Returns the best-matching paid row, or null. Trigger only if a paid row
+// scores meaningfully AND beats any free-row match.
+function findPaidMatch(userQuestion: string, rows: Row[]): Row | null {
+  if (!rows.length) return null;
   const qTokens = new Set(tokens(userQuestion));
-  if (qTokens.size === 0) return false;
+  if (qTokens.size === 0) return null;
 
-  let bestPaid = 0;
+  let bestPaidScore = 0;
+  let bestPaidRow: Row | null = null;
   let bestFree = 0;
   for (const r of rows) {
     const rTokens = tokens(r.q);
     if (!rTokens.length) continue;
     let overlap = 0;
     for (const t of rTokens) if (qTokens.has(t)) overlap++;
-    // Jaccard-ish score normalized by row length
     const score = overlap / Math.max(rTokens.length, 3);
     if (r.t === "مدفوع") {
-      if (score > bestPaid) bestPaid = score;
-    } else {
-      if (score > bestFree) bestFree = score;
+      if (score > bestPaidScore) {
+        bestPaidScore = score;
+        bestPaidRow = r;
+      }
+    } else if (score > bestFree) {
+      bestFree = score;
     }
   }
-  // Trigger only if paid match is meaningful AND beats free match
-  return bestPaid >= 0.34 && bestPaid > bestFree;
+  if (bestPaidScore >= 0.34 && bestPaidScore > bestFree) return bestPaidRow;
+  return null;
+}
+
+// Take roughly the first ~20% of words (min 6, max 18) as a teaser.
+function teaserFromAnswer(answer: string): string {
+  const words = answer.split(/\s+/).filter(Boolean);
+  const take = Math.min(18, Math.max(6, Math.ceil(words.length * 0.2)));
+  return words.slice(0, take).join(" ");
 }
 
 
@@ -161,6 +172,14 @@ const css = `
   .abeer-cta { transition: transform .18s ease, box-shadow .18s ease; }
   .abeer-cta:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(91,61,165,.42) !important; }
   .abeer-cta:active { transform: translateY(0); }
+  .abeer-blurred {
+    filter: blur(5px);
+    user-select: none;
+    pointer-events: none;
+    color: var(--text-dim);
+    -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,.3) 100%);
+            mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,.3) 100%);
+  }
 `;
 
 // ── Sub-components (forwardRef to silence ref warnings) ─────────────────────
@@ -331,11 +350,21 @@ export default function AbeerChat() {
 
         if (error) throw error;
 
-        const reply =
-          (data as { reply?: string })?.reply?.trim() ||
-          "حدث خطأ. حاولي مرة أخرى.";
-        const paid = isPaidTopic(text, qaData);
-        setMessages((p) => [...p, { role: "assistant", content: reply, paid }]);
+        const replyRaw = (data as { reply?: string })?.reply?.trim() || "";
+        const paidRow = findPaidMatch(text, qaData);
+
+        if (paidRow) {
+          // Paid topic → tease using the real CSV answer (deterministic),
+          // ignore the model output to keep the upsell tight.
+          const teaser = teaserFromAnswer(paidRow.a);
+          setMessages((p) => [
+            ...p,
+            { role: "assistant", content: paidRow.a, teaser, paid: true },
+          ]);
+        } else {
+          const reply = replyRaw || "حدث خطأ. حاولي مرة أخرى.";
+          setMessages((p) => [...p, { role: "assistant", content: reply }]);
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         setMessages((p) => [
@@ -536,7 +565,28 @@ export default function AbeerChat() {
                         عبير ✦
                       </div>
                     )}
-                    {msg.content}
+                    {!isUser && msg.paid && msg.teaser ? (
+                      <>
+                        <span>{msg.teaser}</span>
+                        <span className="abeer-blurred"> {msg.content.slice(msg.teaser.length).trim()}</span>
+                        <div
+                          style={{
+                            marginTop: 8,
+                            fontSize: 11,
+                            color: "var(--purple)",
+                            fontWeight: 700,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                          }}
+                        >
+                          <span style={{ color: "var(--gold)" }}>🔒</span>
+                          تابعي القراءة في جلسة الديكودنغ
+                        </div>
+                      </>
+                    ) : (
+                      msg.content
+                    )}
                   </div>
 
                   {!isUser && msg.paid && (

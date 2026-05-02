@@ -34,7 +34,7 @@ Deno.serve(async (req) => {
     const payload = {
       model: model || DEFAULT_MODEL,
       temperature: typeof temperature === "number" ? temperature : 0.2,
-      max_tokens: typeof max_tokens === "number" ? max_tokens : 220,
+      max_tokens: typeof max_tokens === "number" ? max_tokens : 600,
       stream: false,
       messages: [
         ...(system ? [{ role: "system", content: String(system) }] : []),
@@ -74,9 +74,15 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Some NVIDIA models (e.g. gpt-oss) split output into reasoning + content.
+    // If content is empty, fall back to reasoning_content so we never return blank.
+    // @ts-ignore
+    const choice = data?.choices?.[0]?.message;
     const reply =
-      // @ts-ignore
-      data?.choices?.[0]?.message?.content?.trim() ?? "";
+      (choice?.content?.trim?.() ||
+        choice?.reasoning_content?.trim?.() ||
+        choice?.reasoning?.trim?.() ||
+        "").trim();
 
     return new Response(JSON.stringify({ reply, raw: data }), {
       status: 200,
