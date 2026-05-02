@@ -1,20 +1,15 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, forwardRef } from "react";
 import Papa from "papaparse";
 import bundledCsv from "@/assets/abeer-qa.csv?raw";
+import { supabase } from "@/integrations/supabase/client";
 
 // ── DEVELOPER CONFIG ─────────────────────────────────────────────────────────
-// Optional live refresh from a published Google Sheet (CSV). Leave empty to
-// rely solely on the bundled CSV.
+// Optional: set to a published Google Sheet CSV URL
+// (File → Share → Publish to web → CSV → /pub?output=csv)
 const SHEET_CSV_URL = "";
 const REFRESH_MS = 60 * 60 * 1000;
 
-// NVIDIA Build API
-const NVIDIA_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
-const NVIDIA_MODEL = "meta/llama-3.3-70b-instruct";
-const NVIDIA_KEY_STORAGE = "nvidia_api_key";
-
-const AVATAR_URL =
-  "https://abirlogic.com/wp-content/uploads/abir-photo.jpg";
+const AVATAR_URL = "https://abirlogic.com/wp-content/uploads/abir-photo.jpg";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type Row = { q: string; a: string; t: string };
@@ -105,43 +100,46 @@ const css = `
   .abeer-textarea::placeholder { color: var(--text-muted); }
 `;
 
-// ── Sub-components ───────────────────────────────────────────────────────────
-function Avatar({ size = 38 }: { size?: number }) {
-  const border = size > 50 ? 3 : 2;
-  return (
-    <div
-      style={{
-        width: size,
-        height: size,
-        borderRadius: "50%",
-        background: "linear-gradient(135deg, #5B3DA5, #3D2775)",
-        border: `${border}px solid #fff`,
-        boxShadow: "0 2px 10px rgba(91,61,165,.25)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        color: "#fff",
-        fontWeight: 700,
-        fontSize: size * 0.42,
-        flexShrink: 0,
-        overflow: "hidden",
-      }}
-    >
-      <img
-        src={AVATAR_URL}
-        alt="عبير"
-        style={{ width: "100%", height: "100%", objectFit: "cover" }}
-        onError={(e) => {
-          (e.currentTarget as HTMLImageElement).style.display = "none";
+// ── Sub-components (forwardRef to silence ref warnings) ─────────────────────
+const Avatar = forwardRef<HTMLDivElement, { size?: number }>(
+  function Avatar({ size = 38 }, ref) {
+    const border = size > 50 ? 3 : 2;
+    return (
+      <div
+        ref={ref}
+        style={{
+          width: size,
+          height: size,
+          borderRadius: "50%",
+          background: "linear-gradient(135deg, #5B3DA5, #3D2775)",
+          border: `${border}px solid #fff`,
+          boxShadow: "0 2px 10px rgba(91,61,165,.25)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "#fff",
+          fontWeight: 700,
+          fontSize: size * 0.42,
+          flexShrink: 0,
+          overflow: "hidden",
         }}
-      />
-    </div>
-  );
-}
+      >
+        <img
+          src={AVATAR_URL}
+          alt="عبير"
+          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+          onError={(e) => {
+            (e.currentTarget as HTMLImageElement).style.display = "none";
+          }}
+        />
+      </div>
+    );
+  }
+);
 
-function SendIcon() {
+const SendIcon = forwardRef<SVGSVGElement>(function SendIcon(_, ref) {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+    <svg ref={ref} width="18" height="18" viewBox="0 0 24 24" fill="none">
       <path
         d="M3 11.5L21 3l-8.5 18-2-8.5L3 11.5z"
         stroke="currentColor"
@@ -151,7 +149,7 @@ function SendIcon() {
       />
     </svg>
   );
-}
+});
 
 const CHIPS = [
   "كيف أغير واقعي وأصير شخصاً مؤثراً؟",
@@ -165,14 +163,7 @@ function Welcome({ onAsk }: { onAsk: (q: string) => void }) {
       <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}>
         <Avatar size={84} />
       </div>
-      <h2
-        style={{
-          fontSize: 22,
-          fontWeight: 800,
-          color: "var(--text)",
-          margin: 0,
-        }}
-      >
+      <h2 style={{ fontSize: 22, fontWeight: 800, color: "var(--text)", margin: 0 }}>
         عبير الرفاعي
       </h2>
       <div style={{ fontSize: 13, color: "var(--purple)", marginTop: 4, fontWeight: 500 }}>
@@ -212,20 +203,14 @@ export default function AbeerChat() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
-  const [apiKey, setApiKey] = useState<string>(
-    () => localStorage.getItem(NVIDIA_KEY_STORAGE) || ""
-  );
-  const [showKeyPanel, setShowKeyPanel] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Auto-scroll
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isStreaming]);
 
-  // Auto-grow textarea
   useEffect(() => {
     if (!textareaRef.current) return;
     textareaRef.current.style.height = "auto";
@@ -258,21 +243,10 @@ export default function AbeerChat() {
     return () => clearInterval(id);
   }, [fetchSheet]);
 
-  const saveKey = (k: string) => {
-    setApiKey(k);
-    if (k) localStorage.setItem(NVIDIA_KEY_STORAGE, k);
-    else localStorage.removeItem(NVIDIA_KEY_STORAGE);
-  };
-
   const sendMessage = useCallback(
-    (overrideText?: string) => {
+    async (overrideText?: string) => {
       const text = (overrideText ?? input).trim();
       if (!text || isStreaming) return;
-
-      if (!apiKey) {
-        setShowKeyPanel(true);
-        return;
-      }
 
       const history: Msg[] = [...messages, { role: "user", content: text }];
       setMessages(history);
@@ -284,51 +258,34 @@ export default function AbeerChat() {
           ? buildPrompt(qaData)
           : "أنتِ صوت عبير الرفاعي الرقمي. وجهي العميلة لحجز جلسة ديكودنغ على abirlogic.com";
 
-      fetch(NVIDIA_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-          Accept: "application/json",
-        },
-        body: JSON.stringify({
-          model: NVIDIA_MODEL,
-          temperature: 0.2,
-          max_tokens: 800,
-          stream: false,
-          messages: [
-            { role: "system", content: system },
-            ...history.map((m) => ({ role: m.role, content: m.content })),
-          ],
-        }),
-      })
-        .then(async (res) => {
-          if (!res.ok) {
-            const t = await res.text();
-            throw new Error(`${res.status}: ${t.slice(0, 200)}`);
-          }
-          return res.json();
-        })
-        .then((data) => {
-          const reply =
-            data?.choices?.[0]?.message?.content?.trim() ||
-            "حدث خطأ. حاولي مرة أخرى.";
-          setMessages((p) => [...p, { role: "assistant", content: reply }]);
-        })
-        .catch((err) => {
-          setMessages((p) => [
-            ...p,
-            {
-              role: "assistant",
-              content:
-                "تعذر الاتصال بـ NVIDIA. تحققي من المفتاح والاتصال.\n" +
-                String(err.message || err),
-            },
-          ]);
-        })
-        .finally(() => setIsStreaming(false));
+      try {
+        const { data, error } = await supabase.functions.invoke("abeer-chat", {
+          body: {
+            system,
+            messages: history.map((m) => ({ role: m.role, content: m.content })),
+          },
+        });
+
+        if (error) throw error;
+
+        const reply =
+          (data as { reply?: string })?.reply?.trim() ||
+          "حدث خطأ. حاولي مرة أخرى.";
+        setMessages((p) => [...p, { role: "assistant", content: reply }]);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setMessages((p) => [
+          ...p,
+          {
+            role: "assistant",
+            content: "تعذر الاتصال بالخادم. حاولي مجدداً.\n" + msg,
+          },
+        ]);
+      } finally {
+        setIsStreaming(false);
+      }
     },
-    [input, isStreaming, messages, qaData, apiKey]
+    [input, isStreaming, messages, qaData]
   );
 
   const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -422,13 +379,7 @@ export default function AbeerChat() {
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <Avatar size={42} />
             <div>
-              <div
-                style={{
-                  fontSize: 14,
-                  fontWeight: 700,
-                  color: "var(--text)",
-                }}
-              >
+              <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text)" }}>
                 عبير الرفاعي
               </div>
               <div
@@ -438,76 +389,7 @@ export default function AbeerChat() {
                 متصلة الآن
               </div>
             </div>
-            <button
-              onClick={() => setShowKeyPanel((s) => !s)}
-              title="مفتاح NVIDIA"
-              style={{
-                marginInlineStart: "auto",
-                background: apiKey ? "var(--purple-pale)" : "#FEF3C7",
-                color: apiKey ? "var(--purple)" : "#92400E",
-                border: "none",
-                borderRadius: 10,
-                padding: "6px 10px",
-                fontSize: 11,
-                fontFamily: "var(--font)",
-                fontWeight: 700,
-                cursor: "pointer",
-              }}
-            >
-              {apiKey ? "✓ مفتاح" : "أضيفي مفتاح"}
-            </button>
           </div>
-
-          {showKeyPanel && (
-            <div
-              style={{
-                marginTop: 10,
-                padding: 10,
-                background: "var(--purple-pale)",
-                borderRadius: 10,
-                fontSize: 11,
-                color: "var(--text-dim)",
-              }}
-            >
-              <div style={{ marginBottom: 6, lineHeight: 1.6 }}>
-                مفتاح NVIDIA Build (يُحفظ محلياً في المتصفح فقط):
-              </div>
-              <div style={{ display: "flex", gap: 6 }}>
-                <input
-                  type="password"
-                  defaultValue={apiKey}
-                  placeholder="nvapi-..."
-                  onBlur={(e) => saveKey(e.target.value.trim())}
-                  style={{
-                    flex: 1,
-                    border: "1px solid var(--border)",
-                    background: "white",
-                    borderRadius: 8,
-                    padding: "8px 10px",
-                    fontFamily: "var(--font)",
-                    fontSize: 12,
-                    direction: "ltr",
-                  }}
-                />
-                <button
-                  onClick={() => setShowKeyPanel(false)}
-                  style={{
-                    background: "var(--purple)",
-                    color: "white",
-                    border: "none",
-                    borderRadius: 8,
-                    padding: "0 12px",
-                    fontFamily: "var(--font)",
-                    fontWeight: 700,
-                    fontSize: 12,
-                    cursor: "pointer",
-                  }}
-                >
-                  حفظ
-                </button>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Messages */}
