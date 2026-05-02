@@ -6,7 +6,7 @@ const corsHeaders = {
 };
 
 const NVIDIA_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
-const DEFAULT_MODEL = "meta/llama-3.3-70b-instruct";
+const DEFAULT_MODEL = "openai/gpt-oss-20b";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -34,7 +34,7 @@ Deno.serve(async (req) => {
     const payload = {
       model: model || DEFAULT_MODEL,
       temperature: typeof temperature === "number" ? temperature : 0.2,
-      max_tokens: typeof max_tokens === "number" ? max_tokens : 800,
+      max_tokens: typeof max_tokens === "number" ? max_tokens : 220,
       stream: false,
       messages: [
         ...(system ? [{ role: "system", content: String(system) }] : []),
