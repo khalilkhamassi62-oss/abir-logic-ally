@@ -557,7 +557,28 @@ export default function AbeerChat() {
                         عبير ✦
                       </div>
                     )}
-                    {msg.content}
+                    {!isUser && msg.paid && msg.teaser ? (
+                      <>
+                        <span>{msg.teaser}</span>
+                        <span className="abeer-blurred"> {msg.content.slice(msg.teaser.length).trim()}</span>
+                        <div
+                          style={{
+                            marginTop: 8,
+                            fontSize: 11,
+                            color: "var(--purple)",
+                            fontWeight: 700,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                          }}
+                        >
+                          <span style={{ color: "var(--gold)" }}>🔒</span>
+                          تابعي القراءة في جلسة الديكودنغ
+                        </div>
+                      </>
+                    ) : (
+                      msg.content
+                    )}
                   </div>
 
                   {!isUser && msg.paid && (
