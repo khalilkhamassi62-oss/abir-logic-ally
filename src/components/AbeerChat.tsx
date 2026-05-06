@@ -241,20 +241,30 @@ const CHIPS = [
 
 function Welcome({ onAsk }: { onAsk: (q: string) => void }) {
   return (
-    <div className="abeer-enter" style={{ textAlign: "center", padding: "32px 16px" }}>
-      <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}>
-        <Avatar size={84} />
+    <div
+      className="abeer-enter"
+      style={{
+        textAlign: "center",
+        padding: "12px 12px",
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}>
+        <Avatar size={64} />
       </div>
-      <h2 style={{ fontSize: 22, fontWeight: 800, color: "var(--text)", margin: 0 }}>
+      <h2 style={{ fontSize: 19, fontWeight: 800, color: "var(--text)", margin: 0 }}>
         عبير الرفاعي
       </h2>
-      <div style={{ fontSize: 13, color: "var(--purple)", marginTop: 4, fontWeight: 500 }}>
+      <div style={{ fontSize: 12, color: "var(--purple)", marginTop: 3, fontWeight: 500 }}>
         مساعدتي الرقمية — اسأليني بحرية ✦
       </div>
-      <p style={{ fontSize: 13, color: "var(--text-dim)", marginTop: 14, lineHeight: 1.7 }}>
+      <p style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 8, marginBottom: 0, lineHeight: 1.6 }}>
         سواء عن الصحة، الطاقة، العلاقات، أو السيادة — أنا هنا.
       </p>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 22 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 14 }}>
         {CHIPS.map((q) => (
           <button
             key={q}
@@ -264,10 +274,10 @@ function Welcome({ onAsk }: { onAsk: (q: string) => void }) {
               border: "1px solid var(--border)",
               background: "var(--white)",
               color: "var(--text-dim)",
-              padding: "11px 14px",
-              borderRadius: 12,
+              padding: "9px 12px",
+              borderRadius: 11,
               fontFamily: "var(--font)",
-              fontSize: 13,
+              fontSize: 12.5,
               textAlign: "right",
             }}
           >
