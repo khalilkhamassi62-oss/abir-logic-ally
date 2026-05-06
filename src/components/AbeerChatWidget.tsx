@@ -78,13 +78,6 @@ export default function AbeerChatWidget() {
 
       {open && (
         <div className="abeer-widget-panel" role="dialog" aria-label="عبير الرفاعي - دردشة">
-          <button
-            className="abeer-widget-close"
-            onClick={() => setOpen(false)}
-            aria-label="إغلاق"
-          >
-            ×
-          </button>
           <div style={{ flex: 1, minHeight: 0 }}>
             <AbeerChat />
           </div>
