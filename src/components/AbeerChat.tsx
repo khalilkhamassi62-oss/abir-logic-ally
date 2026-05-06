@@ -395,7 +395,7 @@ export default function AbeerChat() {
       className="abeer-root"
       dir="rtl"
       style={{
-        height: "100vh",
+        height: "100%",
         width: "100%",
         background: "var(--bg)",
         display: "flex",
