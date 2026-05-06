@@ -78,11 +78,52 @@ Deno.serve(async (req) => {
     // If content is empty, fall back to reasoning_content so we never return blank.
     // @ts-ignore
     const choice = data?.choices?.[0]?.message;
+
+    // Detect when the model echoes the system prompt back instead of answering.
+    // Markers come from buildPrompt() in the frontend.
+    const PROMPT_MARKERS = [
+      "أنتِ الصوت الرقمي",
+      "قواعد صارمة",
+      "── أسئلة مجانية ──",
+      "── مواضيع مدفوعة",
+      "أجيبي من قاعدة البيانات",
+    ];
+    const looksLikePrompt = (s: string) => {
+      if (!s) return false;
+      const head = s.slice(0, 400);
+      return PROMPT_MARKERS.some((m) => head.includes(m));
+    };
+    const stripPromptEcho = (s: string) => {
+      if (!s) return "";
+      // If the model concatenated prompt + answer, try to keep only the tail
+      // after the last prompt marker.
+      let out = s;
+      for (const m of PROMPT_MARKERS) {
+        const idx = out.lastIndexOf(m);
+        if (idx !== -1) {
+          // jump past the marker line
+          const nl = out.indexOf("\n", idx);
+          out = nl !== -1 ? out.slice(nl + 1) : "";
+        }
+      }
+      return out.trim();
+    };
+
+    const pickClean = (raw?: string) => {
+      const t = (raw ?? "").trim();
+      if (!t) return "";
+      if (looksLikePrompt(t)) {
+        const cleaned = stripPromptEcho(t);
+        return looksLikePrompt(cleaned) ? "" : cleaned;
+      }
+      return t;
+    };
+
     const reply =
-      (choice?.content?.trim?.() ||
-        choice?.reasoning_content?.trim?.() ||
-        choice?.reasoning?.trim?.() ||
-        "").trim();
+      pickClean(choice?.content) ||
+      pickClean(choice?.reasoning_content) ||
+      pickClean(choice?.reasoning) ||
+      "";
 
     return new Response(JSON.stringify({ reply, raw: data }), {
       status: 200,
