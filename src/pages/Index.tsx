@@ -1,5 +1,9 @@
-import AbeerChat from "@/components/AbeerChat";
+import AbeerChatWidget from "@/components/AbeerChatWidget";
 
-const Index = () => <AbeerChat />;
+const Index = () => (
+  <div style={{ minHeight: "100vh", background: "#F7F5FC" }}>
+    <AbeerChatWidget />
+  </div>
+);
 
 export default Index;
