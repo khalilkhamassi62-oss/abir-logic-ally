@@ -575,25 +575,13 @@ export default function AbeerChat() {
                         عبير ✦
                       </div>
                     )}
-                    {!isUser && msg.paid && msg.teaser ? (
-                      <>
-                        <span>{msg.teaser}</span>
-                        <span className="abeer-blurred"> {msg.content.slice(msg.teaser.length).trim()}</span>
-                        <div
-                          style={{
-                            marginTop: 8,
-                            fontSize: 11,
-                            color: "var(--purple)",
-                            fontWeight: 700,
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 6,
-                          }}
-                        >
-                          <span style={{ color: "var(--gold)" }}>🔒</span>
-                          تابعي القراءة في جلسة الديكودنغ
-                        </div>
-                      </>
+                    {!isUser && msg.paid ? (
+                      <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                        <span style={{ color: "var(--gold)", fontSize: 16, lineHeight: 1.4 }}>🔒</span>
+                        <span>
+                          هذا السؤال يُكشف داخل جلسة الديكودنغ — احجزي مكانك واكتشفي الجواب الكامل.
+                        </span>
+                      </div>
                     ) : (
                       msg.content
                     )}
