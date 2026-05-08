@@ -75,12 +75,12 @@ Deno.serve(async (req) => {
     }
 
     // Some NVIDIA models (e.g. gpt-oss) split output into reasoning + content.
-    // If content is empty, fall back to reasoning_content so we never return blank.
+    // We must NEVER show the reasoning ("thinking") or the system prompt to
+    // the user. If we can't extract a clean Arabic answer, return a friendly
+    // fallback in Abir's voice instead.
     // @ts-ignore
     const choice = data?.choices?.[0]?.message;
 
-    // Detect when the model echoes the system prompt back instead of answering.
-    // Markers come from buildPrompt() in the frontend.
     const PROMPT_MARKERS = [
       "أنتِ الصوت الرقمي",
       "قواعد صارمة",
@@ -88,42 +88,61 @@ Deno.serve(async (req) => {
       "── مواضيع مدفوعة",
       "أجيبي من قاعدة البيانات",
     ];
-    const looksLikePrompt = (s: string) => {
-      if (!s) return false;
-      const head = s.slice(0, 400);
-      return PROMPT_MARKERS.some((m) => head.includes(m));
-    };
-    const stripPromptEcho = (s: string) => {
-      if (!s) return "";
-      // If the model concatenated prompt + answer, try to keep only the tail
-      // after the last prompt marker.
-      let out = s;
-      for (const m of PROMPT_MARKERS) {
-        const idx = out.lastIndexOf(m);
-        if (idx !== -1) {
-          // jump past the marker line
-          const nl = out.indexOf("\n", idx);
-          out = nl !== -1 ? out.slice(nl + 1) : "";
-        }
-      }
-      return out.trim();
-    };
+    // English "thinking" / meta-reasoning markers the model sometimes leaks.
+    const THINKING_MARKERS = [
+      "We need to",
+      "We must",
+      "According to the rules",
+      "The user says",
+      "The user:",
+      "Let's search",
+      "Let us search",
+      "We should",
+      "That is #",
+      "The answer:",
+    ];
 
-    const pickClean = (raw?: string) => {
+    const isArabic = (s: string) => /[\u0600-\u06FF]/.test(s);
+    const looksLikeThinking = (s: string) =>
+      THINKING_MARKERS.some((m) => s.includes(m));
+    const looksLikePrompt = (s: string) =>
+      PROMPT_MARKERS.some((m) => s.includes(m));
+
+    // Extract the last clean Arabic paragraph (no English thinking, no prompt
+    // markers). Splits on blank lines.
+    const extractArabicAnswer = (raw?: string): string => {
       const t = (raw ?? "").trim();
       if (!t) return "";
-      if (looksLikePrompt(t)) {
-        const cleaned = stripPromptEcho(t);
-        return looksLikePrompt(cleaned) ? "" : cleaned;
+      const blocks = t
+        .split(/\n\s*\n+/)
+        .map((b) => b.trim())
+        .filter(Boolean);
+      // Walk from the end — the actual answer usually comes last.
+      for (let i = blocks.length - 1; i >= 0; i--) {
+        const b = blocks[i];
+        if (looksLikePrompt(b)) continue;
+        if (looksLikeThinking(b)) continue;
+        if (!isArabic(b)) continue;
+        // Strip leading labels like "Answer:" / "الجواب:" etc.
+        return b.replace(/^(answer|الجواب|الرد)\s*[:：-]\s*/i, "").trim();
       }
-      return t;
+      return "";
     };
 
-    const reply =
-      pickClean(choice?.content) ||
-      pickClean(choice?.reasoning_content) ||
-      pickClean(choice?.reasoning) ||
-      "";
+    // Only trust `content`. Never surface reasoning_content to the user.
+    let reply = extractArabicAnswer(choice?.content);
+    if (!reply) {
+      // Last resort: try reasoning fields, but ONLY if they contain a clean
+      // Arabic tail with no thinking/prompt leakage.
+      reply =
+        extractArabicAnswer(choice?.reasoning_content) ||
+        extractArabicAnswer(choice?.reasoning) ||
+        "";
+    }
+    if (!reply) {
+      reply =
+        "سامحيني حبيبتي، ما قدرت أصيغ الجواب هلق. جربي تعيدي صياغة سؤالك بكلمات أوضح.";
+    }
 
     return new Response(JSON.stringify({ reply, raw: data }), {
       status: 200,
