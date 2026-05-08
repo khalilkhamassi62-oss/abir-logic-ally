@@ -368,10 +368,11 @@ export default function AbeerChat() {
         if (paidRow || forceUpsell) {
           // Paid topic → tease using the real CSV answer (deterministic),
           // ignore the model output to keep the upsell tight.
-          const teaser = teaserFromAnswer(paidRow.a);
+          const teaser = paidRow ? teaserFromAnswer(paidRow.a) : "";
+          const content = paidRow ? paidRow.a : (replyRaw || "");
           setMessages((p) => [
             ...p,
-            { role: "assistant", content: paidRow.a, teaser, paid: true },
+            { role: "assistant", content, teaser, paid: true },
           ]);
         } else {
           const reply = replyRaw || "حدث خطأ. حاولي مرة أخرى.";
