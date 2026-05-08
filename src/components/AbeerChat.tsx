@@ -11,7 +11,7 @@ const SHEET_CSV_URL = "";
 const REFRESH_MS = 60 * 60 * 1000;
 
 const AVATAR_URL = abeerAvatar;
-const COURSE_URL = "https://www.abirlogic.com/en/decoding";
+const COURSE_URL = "https://www.abirlogic.com/decoding";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type Row = { q: string; a: string; t: string };
