@@ -362,8 +362,10 @@ export default function AbeerChat() {
 
         const replyRaw = (data as { reply?: string })?.reply?.trim() || "";
         const paidRow = findPaidMatch(text, qaData);
+        const userMsgCount = history.filter((m) => m.role === "user").length;
+        const forceUpsell = userMsgCount >= 4;
 
-        if (paidRow) {
+        if (paidRow || forceUpsell) {
           // Paid topic → tease using the real CSV answer (deterministic),
           // ignore the model output to keep the upsell tight.
           const teaser = teaserFromAnswer(paidRow.a);
