@@ -102,7 +102,7 @@ Deno.serve(async (req) => {
       "The answer:",
     ];
 
-    const isArabic = (s: string) => /[\u0600-\u06FF]/.test(s);
+    const hasArabic = (s: string) => /[\u0600-\u06FF]/.test(s);
     const looksLikeThinking = (s: string) =>
       THINKING_MARKERS.some((m) => s.includes(m));
     const looksLikePrompt = (s: string) =>
