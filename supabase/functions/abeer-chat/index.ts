@@ -111,41 +111,71 @@ Deno.serve(async (req) => {
     const looksLikePrompt = (s: string) =>
       PROMPT_MARKERS.some((m) => s.includes(m));
 
-    // Extract the last clean Arabic paragraph (no English thinking, no prompt
-    // markers). Splits on blank lines.
+    // Extract a clean Arabic answer. We strip lines that are clearly English
+    // thinking or prompt echoes, then keep only Arabic-bearing lines.
     const extractArabicAnswer = (raw?: string): string => {
       const t = (raw ?? "").trim();
       if (!t) return "";
-      const blocks = t
-        .split(/\n\s*\n+/)
-        .map((b) => b.trim())
-        .filter(Boolean);
-      // Walk from the end — the actual answer usually comes last.
-      for (let i = blocks.length - 1; i >= 0; i--) {
-        const b = blocks[i];
-        if (looksLikePrompt(b)) continue;
-        if (looksLikeThinking(b)) continue;
-        if (!isArabic(b)) continue;
-        // Strip leading labels like "Answer:" / "الجواب:" etc.
-        return b.replace(/^(answer|الجواب|الرد)\s*[:：-]\s*/i, "").trim();
+      const lines = t.split(/\r?\n/);
+      const kept: string[] = [];
+      for (const ln of lines) {
+        const s = ln.trim();
+        if (!s) {
+          if (kept.length && kept[kept.length - 1] !== "") kept.push("");
+          continue;
+        }
+        if (looksLikePrompt(s)) continue;
+        if (looksLikeThinking(s)) continue;
+        if (!hasArabic(s)) continue;
+        kept.push(s);
       }
-      return "";
+      const out = kept.join("\n").trim();
+      if (!out) return "";
+      return out.replace(/^(answer|الجواب|الرد)\s*[:：-]\s*/i, "").trim();
     };
 
-    // Only trust `content`. Never surface reasoning_content to the user.
-    let reply = extractArabicAnswer(choice?.content);
+    const callNvidia = async (extraSystem?: string) => {
+      const p = {
+        ...payload,
+        messages: extraSystem
+          ? [{ role: "system", content: extraSystem }, ...payload.messages]
+          : payload.messages,
+      };
+      const r = await fetch(NVIDIA_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(p),
+      });
+      const tx = await r.text();
+      if (!r.ok) return null;
+      try { return JSON.parse(tx); } catch { return null; }
+    };
+
+    let reply =
+      extractArabicAnswer(choice?.content) ||
+      extractArabicAnswer(choice?.reasoning_content) ||
+      extractArabicAnswer(choice?.reasoning) ||
+      "";
+
+    // Retry once with a strict Arabic-only nudge if first pass was unusable.
     if (!reply) {
-      // Last resort: try reasoning fields, but ONLY if they contain a clean
-      // Arabic tail with no thinking/prompt leakage.
+      const retry = await callNvidia(
+        "جاوبي بالعربي فقط، بجملة أو جملتين، بدون أي تفكير بصوت عالي وبدون إنجليزي وبدون تكرار التعليمات. إذا السؤال مو من اختصاصك أو مو موجود بقاعدة بياناتك، ردي بالعربي إنه خارج اختصاصك.",
+      );
+      // @ts-ignore
+      const c2 = retry?.choices?.[0]?.message;
       reply =
-        extractArabicAnswer(choice?.reasoning_content) ||
-        extractArabicAnswer(choice?.reasoning) ||
+        extractArabicAnswer(c2?.content) ||
+        extractArabicAnswer(c2?.reasoning_content) ||
+        extractArabicAnswer(c2?.reasoning) ||
         "";
     }
-    if (!reply) {
-      reply =
-        "سامحيني حبيبتي، ما قدرت أصيغ الجواب هلق. جربي تعيدي صياغة سؤالك بكلمات أوضح.";
-    }
+
+    if (!reply) reply = OUT_OF_SCOPE;
 
     return new Response(JSON.stringify({ reply, raw: data }), {
       status: 200,
