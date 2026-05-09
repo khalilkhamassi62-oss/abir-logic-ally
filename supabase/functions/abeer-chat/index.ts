@@ -8,6 +8,9 @@ const corsHeaders = {
 const NVIDIA_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
 const DEFAULT_MODEL = "openai/gpt-oss-20b";
 
+const OUT_OF_SCOPE =
+  "هالسؤال مو من اختصاصي وما لقيت جواب إلو بقاعدة بياناتي حبيبتي 💛 جربي تسأليني بموضوع تاني.";
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
