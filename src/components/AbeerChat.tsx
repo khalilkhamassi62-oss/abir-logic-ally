@@ -15,7 +15,7 @@ const COURSE_URL = "https://www.abirlogic.com/decoding";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type Row = { q: string; a: string; t: string };
-type Msg = { role: "user" | "assistant"; content: string; paid?: boolean; teaser?: string };
+type Msg = { role: "user" | "assistant"; content: string; paid?: boolean; teaser?: string; cta?: boolean };
 
 // ── Paid-topic detection ─────────────────────────────────────────────────────
 // Arabic-aware normalization: strip diacritics, unify alef/ya/ta-marbuta,
