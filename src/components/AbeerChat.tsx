@@ -15,7 +15,7 @@ const COURSE_URL = "https://www.abirlogic.com/decoding";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type Row = { q: string; a: string; t: string };
-type Msg = { role: "user" | "assistant"; content: string; paid?: boolean; teaser?: string };
+type Msg = { role: "user" | "assistant"; content: string; paid?: boolean; teaser?: string; cta?: boolean };
 
 // ── Paid-topic detection ─────────────────────────────────────────────────────
 // Arabic-aware normalization: strip diacritics, unify alef/ya/ta-marbuta,
@@ -76,6 +76,30 @@ function findPaidMatch(userQuestion: string, rows: Row[]): Row | null {
   }
   if (bestPaidScore >= 0.34 && bestPaidScore > bestFree) return bestPaidRow;
   return null;
+}
+
+// Returns the best-matching FREE row, or null. Uses the same token-overlap
+// scoring as the paid matcher but a slightly lower threshold so typos and
+// short rephrasings still resolve to the canonical DB answer.
+function findFreeMatch(userQuestion: string, rows: Row[]): Row | null {
+  if (!rows.length) return null;
+  const qTokens = new Set(tokens(userQuestion));
+  if (qTokens.size === 0) return null;
+  let best = 0;
+  let bestRow: Row | null = null;
+  for (const r of rows) {
+    if (r.t !== "مجاني") continue;
+    const rTokens = tokens(r.q);
+    if (!rTokens.length) continue;
+    let overlap = 0;
+    for (const t of rTokens) if (qTokens.has(t)) overlap++;
+    const score = overlap / Math.max(rTokens.length, 3);
+    if (score > best) {
+      best = score;
+      bestRow = r;
+    }
+  }
+  return best >= 0.28 ? bestRow : null;
 }
 
 // Take roughly the first ~20% of words (min 6, max 18) as a teaser.
@@ -365,21 +389,25 @@ export default function AbeerChat() {
 
         const replyRaw = (data as { reply?: string })?.reply?.trim() || "";
         const paidRow = findPaidMatch(text, qaData);
+        const freeRow = paidRow ? null : findFreeMatch(text, qaData);
         const userMsgCount = history.filter((m) => m.role === "user").length;
         const forceUpsell = userMsgCount >= 4;
 
-        if (paidRow || forceUpsell) {
-          // Paid topic → tease using the real CSV answer (deterministic),
-          // ignore the model output to keep the upsell tight.
-          const teaser = paidRow ? teaserFromAnswer(paidRow.a) : "";
-          const content = paidRow ? paidRow.a : (replyRaw || "");
+        if (paidRow) {
+          // Paid topic → tease using the real CSV answer (deterministic).
+          const teaser = teaserFromAnswer(paidRow.a);
           setMessages((p) => [
             ...p,
-            { role: "assistant", content, teaser, paid: true },
+            { role: "assistant", content: paidRow.a, teaser, paid: true },
           ]);
         } else {
-          const reply = replyRaw || "حدث خطأ. حاولي مرة أخرى.";
-          setMessages((p) => [...p, { role: "assistant", content: reply }]);
+          // Prefer the canonical DB answer when we have a strong local match;
+          // otherwise use the model's reply. Attach a CTA button from msg #4.
+          const reply = freeRow?.a || replyRaw || "حدث خطأ. حاولي مرة أخرى.";
+          setMessages((p) => [
+            ...p,
+            { role: "assistant", content: reply, cta: forceUpsell },
+          ]);
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -593,7 +621,7 @@ export default function AbeerChat() {
                     )}
                   </div>
 
-                  {!isUser && msg.paid && (
+                  {!isUser && (msg.paid || msg.cta) && (
                     <a
                       href={COURSE_URL}
                       target="_blank"
