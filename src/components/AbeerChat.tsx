@@ -78,6 +78,30 @@ function findPaidMatch(userQuestion: string, rows: Row[]): Row | null {
   return null;
 }
 
+// Returns the best-matching FREE row, or null. Uses the same token-overlap
+// scoring as the paid matcher but a slightly lower threshold so typos and
+// short rephrasings still resolve to the canonical DB answer.
+function findFreeMatch(userQuestion: string, rows: Row[]): Row | null {
+  if (!rows.length) return null;
+  const qTokens = new Set(tokens(userQuestion));
+  if (qTokens.size === 0) return null;
+  let best = 0;
+  let bestRow: Row | null = null;
+  for (const r of rows) {
+    if (r.t !== "مجاني") continue;
+    const rTokens = tokens(r.q);
+    if (!rTokens.length) continue;
+    let overlap = 0;
+    for (const t of rTokens) if (qTokens.has(t)) overlap++;
+    const score = overlap / Math.max(rTokens.length, 3);
+    if (score > best) {
+      best = score;
+      bestRow = r;
+    }
+  }
+  return best >= 0.28 ? bestRow : null;
+}
+
 // Take roughly the first ~20% of words (min 6, max 18) as a teaser.
 function teaserFromAnswer(answer: string): string {
   const words = answer.split(/\s+/).filter(Boolean);
