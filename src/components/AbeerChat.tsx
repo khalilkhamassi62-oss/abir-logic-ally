@@ -609,19 +609,10 @@ export default function AbeerChat() {
                         عبير ✦
                       </div>
                     )}
-                    {!isUser && msg.paid ? (
-                      <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-                        <span style={{ color: "var(--gold)", fontSize: 16, lineHeight: 1.4 }}>🔒</span>
-                        <span>
-                          هذا السؤال يُكشف داخل جلسة الديكودنغ — احجزي مكانك واكتشفي الجواب الكامل.
-                        </span>
-                      </div>
-                    ) : (
-                      msg.content
-                    )}
+                    {msg.content}
                   </div>
 
-                  {!isUser && msg.paid && (
+                  {!isUser && (msg.paid || msg.cta) && (
                     <a
                       href={COURSE_URL}
                       target="_blank"
